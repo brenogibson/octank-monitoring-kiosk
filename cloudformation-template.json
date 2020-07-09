@@ -1,0 +1,455 @@
+{
+    "Parameters": {
+        "TopicName" : {
+            "Type" : "String",
+            "Default" : "kiosk/pub"
+        },
+        "DynamoTableName" : {
+            "Type" : "String",
+            "Default" : "MB3_CF_Table"
+        },
+        "FileKey" : {
+            "Type" : "String",
+            "Default" : "myDeploymentPackage.zip"
+        },
+        "LambdaBucket" : {
+            "Type" : "String",
+            "Default" : "cf-templates-ug1sl2tb75r3-us-east-1"
+        },
+        "DataBucket" : {
+            "Type" : "String",
+            "Default" : "cf-templates-ug1sl2tb75r3-us-east-1"
+        },
+        "DataBucketArn" : {
+            "Type" : "String",
+            "Default" : "arn:aws:s3:::cf-templates-ug1sl2tb75r3-us-east-1"
+        }
+    },
+    "Resources": {
+      "DDBTable": {
+        "Type": "AWS::DynamoDB::Table",
+        "Properties": {
+          "AttributeDefinitions": [
+            {
+              "AttributeName": "badgeID",
+              "AttributeType": "S"
+            },
+            {
+              "AttributeName": "timestamp",
+              "AttributeType": "N"
+            }
+          ],
+          "KeySchema": [
+            {
+              "AttributeName": "badgeID",
+              "KeyType": "HASH"
+            },
+            {
+              "AttributeName": "timestamp",
+              "KeyType": "RANGE"
+            }
+          ],
+          "ProvisionedThroughput": {
+            "ReadCapacityUnits": "5",
+            "WriteCapacityUnits": "5"
+          },
+          "StreamSpecification": {"StreamViewType" : "NEW_AND_OLD_IMAGES"}
+        },
+        "DeletionPolicy": "Delete"
+      },
+
+
+      "IoTTopicRule": {
+        "Type": "AWS::IoT::TopicRule",
+        "Properties": {
+          "RuleName": "IoTMonitorDynamoDBRule",
+          "TopicRulePayload": {
+            "RuleDisabled": "false",
+            "Sql": {
+                "Fn::Join": ["", ["SELECT timestamp, badgeID, deviceID, temperature FROM '", { "Ref": "TopicName" },"'"]]
+            },
+            "Actions": [
+              {
+                "DynamoDBv2": {
+                    "PutItem": {
+                        "TableName": "MB3_people_flow"
+                    },
+                  "RoleArn": {
+                    "Fn::GetAtt": [
+                      "IoTMonitorDynamoDBRole",
+                      "Arn"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "DependsOn": "IoTMonitorDynamoDBRole"
+      },
+
+
+      "IoTMonitorDynamoDBRole": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+            "AssumeRolePolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": [
+                                "iot.amazonaws.com"
+                            ]
+                        },
+                        "Action": [
+                            "sts:AssumeRole"
+                        ]
+                    }
+                ]
+            },
+            "Policies": [
+            {
+                "PolicyName": "IoTMonitorDymanoDBPolicy",
+                "PolicyDocument" : {
+                    "Version": "2012-10-17",
+                    "Statement": {
+                        "Effect": "Allow",
+                        "Action": "dynamodb:PutItem",
+                        "Resource": {
+                            "Fn::GetAtt": [
+                              "DDBTable",
+                              "Arn"
+                            ]
+                          }
+                    }
+                }
+            }
+            ]
+        },
+        "DependsOn": "DDBTable"
+      },
+
+
+      "LambdaStreamToFirehoseFunction": {
+        "Type" : "AWS::Lambda::Function",
+        "DependsOn": "LambdaStreamFirehoseRole",
+        "Properties" : {
+            "Code" : {
+                "S3Bucket" : { "Ref": "LambdaBucket" },
+                "S3Key" :  { "Ref": "FileKey" }
+            },
+            "FunctionName" : "cf-dynamodbStream-to-firehose",
+            "Handler" : "lambda_function.lambda_handler",
+            "MemorySize" : 128,
+            "Role" : {"Fn::GetAtt": ["LambdaStreamFirehoseRole", "Arn"]},
+            "Runtime" : "python3.7",
+            "Timeout" : 3
+          }
+      },
+
+      "LambdaStreamFirehoseRole": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+            "AssumeRolePolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": [
+                                "lambda.amazonaws.com"
+                            ]
+                        },
+                        "Action": [
+                            "sts:AssumeRole"
+                        ]
+                    }
+                ]
+            },
+            "Policies": [
+            {
+                "PolicyName": "LambdaStreamFirehosePolicy",
+                "PolicyDocument" : {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Action": "logs:CreateLogGroup",
+                            "Resource": "arn:aws:logs:us-east-1:*:*"
+                        },
+                        {
+                            "Effect": "Allow",
+                            "Action": [
+                                "logs:CreateLogStream",
+                                "logs:PutLogEvents"
+                            ],
+                            "Resource": [
+                                "arn:aws:logs:us-east-1:*:log-group:*:*"
+                            ]
+                        },
+                        {
+                            "Effect": "Allow",
+                            "Action": [
+                                "dynamodb:DescribeStream",
+                                "dynamodb:GetRecords",
+                                "dynamodb:GetShardIterator",
+                                "dynamodb:ListStreams",
+                                "logs:CreateLogGroup",
+                                "logs:CreateLogStream",
+                                "logs:PutLogEvents"
+                            ],
+                            "Resource": [
+                                {"Fn::GetAtt": [
+                                    "DDBTable",
+                                    "Arn"
+                                ]},
+                                {"Fn::GetAtt": [
+                                    "DDBTable",
+                                    "StreamArn"
+                                ]}
+                            ]
+                        },
+                        {
+                            "Action": [
+                                "firehose:*"
+                            ],
+                            "Effect": "Allow",
+                            "Resource": "*"
+                        }
+                    ]
+                }
+            }
+            ]
+        },
+        "DependsOn": "DDBTable"
+      },
+
+
+      "LambdaTrigger" : {
+        "Type" : "AWS::Lambda::EventSourceMapping",
+        "DependsOn": "LambdaStreamToFirehoseFunction",
+        "Properties" : {
+            "BatchSize" : 1,
+            "EventSourceArn" : {"Fn::GetAtt": ["DDBTable","StreamArn"]},
+            "FunctionName" : {"Fn::GetAtt": ["LambdaStreamToFirehoseFunction","Arn"]},
+            "StartingPosition" : "LATEST"
+          }
+      },
+
+
+
+
+      "FirehoseStreamToS3": {
+        "Type" : "AWS::KinesisFirehose::DeliveryStream",
+        "DependsOn" : "FirehoseStreamRole",
+        "Properties" : {
+            "DeliveryStreamName" : "FirehoseStreamToS3",
+            "DeliveryStreamType" : "DirectPut",
+            "S3DestinationConfiguration" : {
+                "BucketARN" : { "Ref": "DataBucketArn" },
+                "RoleARN" : {"Fn::GetAtt": ["FirehoseStreamRole","Arn"]}
+              }
+          }
+      },
+
+
+      "FirehoseStreamRole": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+            "AssumeRolePolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": [
+                                "firehose.amazonaws.com"
+                            ]
+                        },
+                        "Action": [
+                            "sts:AssumeRole"
+                        ]
+                    }
+                ]
+            },
+            "Policies": [
+            {
+                "PolicyName": "FirehoseStreamPolicy",
+                "PolicyDocument" : {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Sid": "",
+                            "Effect": "Allow",
+                            "Action": [
+                                "glue:GetTable",
+                                "glue:GetTableVersion",
+                                "glue:GetTableVersions"
+                            ],
+                            "Resource": "*"
+                        },
+                        {
+                            "Sid": "",
+                            "Effect": "Allow",
+                            "Action": [
+                                "s3:AbortMultipartUpload",
+                                "s3:GetBucketLocation",
+                                "s3:GetObject",
+                                "s3:ListBucket",
+                                "s3:ListBucketMultipartUploads",
+                                "s3:PutObject"
+                            ],
+                            "Resource": [
+                                { "Ref": "DataBucketArn" },
+                                { "Fn::Join" : [ "", [{ "Ref": "DataBucketArn" },"/*"]]},
+                                "arn:aws:s3:::%FIREHOSE_BUCKET_NAME%",
+                                "arn:aws:s3:::%FIREHOSE_BUCKET_NAME%/*"
+                            ]
+                        },
+                        {
+                            "Sid": "",
+                            "Effect": "Allow",
+                            "Action": [
+                                "lambda:InvokeFunction",
+                                "lambda:GetFunctionConfiguration"
+                            ],
+                            "Resource": "arn:aws:lambda:us-east-1:881464459139:function:%FIREHOSE_DEFAULT_FUNCTION%:%FIREHOSE_DEFAULT_VERSION%"
+                        },
+                        {
+                            "Sid": "",
+                            "Effect": "Allow",
+                            "Action": [
+                                "logs:PutLogEvents"
+                            ],
+                            "Resource": [
+                                "arn:aws:logs:us-east-1:*:*:*:*:*"
+                            ]
+                        },
+                        {
+                            "Sid": "",
+                            "Effect": "Allow",
+                            "Action": [
+                                "kinesis:DescribeStream",
+                                "kinesis:GetShardIterator",
+                                "kinesis:GetRecords",
+                                "kinesis:ListShards"
+                            ],
+                            "Resource": "arn:aws:kinesis:us-east-1:881464459139:stream/%FIREHOSE_STREAM_NAME%"
+                        },
+                        {
+                            "Effect": "Allow",
+                            "Action": [
+                                "kms:Decrypt"
+                            ],
+                            "Resource": [
+                                "arn:aws:kms:us-east-1:881464459139:key/%SSE_KEY_ID%"
+                            ],
+                            "Condition": {
+                                "StringEquals": {
+                                    "kms:ViaService": "kinesis.%REGION_NAME%.amazonaws.com"
+                                },
+                                "StringLike": {
+                                    "kms:EncryptionContext:aws:kinesis:arn": "arn:aws:kinesis:%REGION_NAME%:881464459139:stream/%FIREHOSE_STREAM_NAME%"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+            ]
+        }
+      },
+
+      "GlueDatabase": {
+        "Type" : "AWS::Glue::Database",
+        "Properties" : {
+            "CatalogId" : { "Ref" : "AWS::AccountId" },
+            "DatabaseInput" : {
+                "Name" : "people_measurement_database"
+            }
+          }
+      },
+      "GlueMeasurementTable": {
+          "Type": "AWS::Glue::Table",
+          "DependsOn": "GlueDatabase",
+          "Properties":{
+            "CatalogId" : { "Ref" : "AWS::AccountId" },
+            "DatabaseName" : "people_measurement_database",
+            "TableInput" : {
+                "Name" : "people_data",
+                "Parameters" : {"Classification": "Json"},
+                "StorageDescriptor" : {
+                    "Columns": [
+                        {"Name": "badgeid", "Type":"string"},
+                        {"Name": "temperature", "Type":"double"},
+                        {"Name": "deviceid", "Type":"string"},
+                        {"Name": "timestamp", "Type":"double"}
+                    ],
+                    "Compressed": "False",
+                    "InputFormat": "TextInputFormat",
+                    "OutputFormat": "IgnoreKeyTextOutputFormat",
+                    "Location": {"Fn::Join": ["/", ["s3://", { "Ref": "DataBucket" },"timeseries_data",""]]}
+                },
+                "TableType" : "EXTERNAL_TABLE"
+              }
+          }
+      },
+
+      "DataBucketPolicy" :{
+        "Type" : "AWS::S3::BucketPolicy",
+        "Properties" : {
+            "Bucket" : { "Ref": "DataBucket" },
+            "PolicyDocument" : {
+                "Version": "2012-10-17",
+                "Id": "AthenaS3BucketAccessPolicy",
+                "Statement": [
+                    {
+                        "Sid": "AthenaS3BucketAccessPolicy",
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": "athena.amazonaws.com"
+                        },
+                        "Action": [
+                            "s3:GetObject",
+                            "s3:*"
+                        ],
+                        "Resource": [
+                            { "Ref": "DataBucketArn" },
+                            { "Fn::Join" : [ "", [{ "Ref": "DataBucketArn" },"/*"]]}
+                        ]
+                    },
+                    {
+                        "Sid": "QSS3BucketAccessPolicy",
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": "quicksight.amazonaws.com"
+                        },
+                        "Action": [
+                            "s3:GetObject",
+                            "s3:*"
+                        ],
+                        "Resource": [
+                            { "Ref": "DataBucketArn" },
+                            { "Fn::Join" : [ "", [{ "Ref": "DataBucketArn" },"/*"]]}
+                        ]
+                    }
+                ]
+            }
+          }
+      }
+      
+
+
+
+
+
+
+
+
+
+
+
+
+    }
+  }
