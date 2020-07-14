@@ -314,7 +314,7 @@
                                 "lambda:InvokeFunction",
                                 "lambda:GetFunctionConfiguration"
                             ],
-                            "Resource": "arn:aws:lambda:us-east-1:881464459139:function:%FIREHOSE_DEFAULT_FUNCTION%:%FIREHOSE_DEFAULT_VERSION%"
+                            "Resource": { "Fn::Join" : [ "", ["arn:aws:lambda:us-east-1:",{ "Ref" : "AWS::AccountId" },":function:%FIREHOSE_DEFAULT_FUNCTION%:%FIREHOSE_DEFAULT_VERSION%"]]}
                         },
                         {
                             "Sid": "",
@@ -335,7 +335,7 @@
                                 "kinesis:GetRecords",
                                 "kinesis:ListShards"
                             ],
-                            "Resource": "arn:aws:kinesis:us-east-1:881464459139:stream/%FIREHOSE_STREAM_NAME%"
+                            "Resource": { "Fn::Join" : [ "", ["arn:aws:kinesis:us-east-1:",{ "Ref" : "AWS::AccountId" },":stream/%FIREHOSE_STREAM_NAME%"]]}
                         },
                         {
                             "Effect": "Allow",
@@ -343,14 +343,14 @@
                                 "kms:Decrypt"
                             ],
                             "Resource": [
-                                "arn:aws:kms:us-east-1:881464459139:key/%SSE_KEY_ID%"
+                                { "Fn::Join" : [ "", ["arn:aws:kms:us-east-1:",{ "Ref" : "AWS::AccountId" },":key/%SSE_KEY_ID%"]]}
                             ],
                             "Condition": {
                                 "StringEquals": {
                                     "kms:ViaService": "kinesis.%REGION_NAME%.amazonaws.com"
                                 },
                                 "StringLike": {
-                                    "kms:EncryptionContext:aws:kinesis:arn": "arn:aws:kinesis:%REGION_NAME%:881464459139:stream/%FIREHOSE_STREAM_NAME%"
+                                    "kms:EncryptionContext:aws:kinesis:arn": { "Fn::Join" : [ "", ["arn:aws:kinesis:%REGION_NAME%:",{ "Ref" : "AWS::AccountId" },":stream/%FIREHOSE_STREAM_NAME%"]]}
                                 }
                             }
                         }
