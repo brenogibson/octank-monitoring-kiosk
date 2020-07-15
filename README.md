@@ -5,6 +5,9 @@
 
 In this project, a device runs AWS Greengrass Core Software and works as a temperature measuring station/kiosk. 
 
+<img src="static/img/diagram_full.png">
+
+
 ## Setup
 
 For this demo, I used a Raspberry Pi 4, a MLX 90614 temperature sensor and an ESP32 for alerting.
